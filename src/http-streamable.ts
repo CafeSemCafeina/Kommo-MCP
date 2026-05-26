@@ -705,17 +705,18 @@ function getOrCreateSession(sessionId: string | undefined): { initialized: boole
 /** Send MCP JSON-RPC response as SSE or JSON depending on Accept header */
 function sendMcpResponse(res: express.Response, payload: object, req: express.Request): void {
   const accept = (req.headers['accept'] || '').toLowerCase();
-  if (accept.includes('application/json') && !accept.includes('text/event-stream')) {
-    res.setHeader('Content-Type', 'application/json');
-    res.status(200).json(payload);
-  } else {
+  // Only use SSE if the client explicitly requests it
+  if (accept.includes('text/event-stream') && !accept.includes('application/json')) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // CORS headers are set by the cors middleware — don't override here
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
     res.end();
+  } else {
+    // Default: respond with plain JSON (compatible with Claude Web and most clients)
+    res.setHeader('Content-Type', 'application/json');
+    res.status(200).json(payload);
   }
 }
 
@@ -1859,13 +1860,21 @@ app.post('/mcp', async (req, res) => {
   }
 });
 
-// CORS preflight
-app.options('/mcp', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+// GET /mcp — MCP Streamable HTTP spec: return 405 if server doesn't support server-initiated SSE
+app.get('/mcp', (_req, res) => {
+  res.setHeader('Allow', 'POST, OPTIONS');
+  res.status(405).json({
+    jsonrpc: '2.0',
+    error: { code: -32000, message: 'Method Not Allowed. Use POST for MCP requests.' }
+  });
+});
+
+// DELETE /mcp — session termination (acknowledge gracefully)
+app.delete('/mcp', (_req, res) => {
   res.sendStatus(200);
 });
+
+// CORS preflight is handled by the cors() middleware above — no manual handler needed
 
 // Start server
 // In production (Render/cloud): bind to 0.0.0.0 so the platform can route traffic
