@@ -1887,4 +1887,23 @@ app.listen(PORT, HOST, () => {
     current_year: currentYear,
     won_status_id: KOMMO_WON_STATUS_ID
   });
+
+  // Self-ping to prevent Render free tier from spinning down (every 10 minutes)
+  if (isProduction) {
+    const selfPingUrl = process.env.RENDER_EXTERNAL_URL || process.env.SELF_PING_URL;
+    if (selfPingUrl) {
+      const pingInterval = 10 * 60 * 1000; // 10 minutes
+      setInterval(async () => {
+        try {
+          const response = await fetch(`${selfPingUrl}/health`);
+          logger.debug('Self-ping OK', { status: response.status });
+        } catch (err) {
+          logger.debug('Self-ping failed (will retry)', { error: String(err) });
+        }
+      }, pingInterval);
+      logger.info(`🏓 Self-ping ativo: ${selfPingUrl}/health a cada 10 min`);
+    } else {
+      logger.info('⚠️ Self-ping desativado: defina RENDER_EXTERNAL_URL ou SELF_PING_URL para manter o servidor acordado');
+    }
+  }
 });
