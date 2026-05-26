@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: kommo-mcp-server
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: LOG_LEVEL
+        value: info
+      # ⬇️ Configure these in the Render dashboard (mark as Secret)
+      - key: KOMMO_BASE_URL
+        sync: false
+      - key: KOMMO_ACCESS_TOKEN
+        sync: false
+      # Optional: ID of "Won/Ganho" status in your Kommo account pipelines
+      - key: KOMMO_WON_STATUS_ID
+        sync: false

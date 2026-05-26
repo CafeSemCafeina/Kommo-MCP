@@ -14,10 +14,14 @@ dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Won status ID - varies per Kommo account, configure via env
+const KOMMO_WON_STATUS_ID = Number(process.env.KOMMO_WON_STATUS_ID) || 142;
 
 // Environment configuration
-const isDevelopment = process.env.NODE_ENV !== 'production';
 const logLevel = process.env.LOG_LEVEL || 'info';
+const serverStartTime = Date.now();
 
 // Structured logging
 const logger = {
@@ -42,17 +46,47 @@ const kommoAPI = new KommoAPI({
   accessToken: process.env.KOMMO_ACCESS_TOKEN || ''
 });
 
-// Middleware
-app.use(cors());
+// CORS — allow Claude Web (claude.ai) and standard browser origins
+const allowedCorsOrigins = [
+  'https://claude.ai',
+  'https://www.claude.ai',
+  'https://console.anthropic.com',
+  ...(process.env.MCP_ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || [])
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, server-to-server, Claude Web MCP)
+    if (!origin) return callback(null, true);
+    if (allowedCorsOrigins.includes(origin)) return callback(null, true);
+    // In development, allow all origins
+    if (!isProduction) return callback(null, true);
+    // In production, reject unlisted origins
+    callback(null, false);
+  },
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-API-Key',
+    'MCP-Protocol-Version',
+    'MCP-Session-Id',
+    'Accept'
+  ],
+  exposedHeaders: ['MCP-Session-Id'],
+  methods: ['GET', 'POST', 'OPTIONS']
+}));
 app.use(express.json());
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  const uptimeSeconds = Math.floor((Date.now() - serverStartTime) / 1000);
   res.json({
-    status: 'healthy', 
+    status: 'healthy',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    kommo_base_url: process.env.KOMMO_BASE_URL || 'https://api-g.kommo.com'
+    kommo_base_url: process.env.KOMMO_BASE_URL || 'https://api-g.kommo.com',
+    uptime_seconds: uptimeSeconds,
+    version: '1.0.0'
   });
 });
 
@@ -369,7 +403,7 @@ function findCorrelations(leadsData: any[]): CorrelationAnalysis[] {
     const date = new Date(lead.created_at * 1000).toDateString();
     leadsByDay.set(date, (leadsByDay.get(date) || 0) + 1);
     
-    if (lead.status_id === 142) { // Assuming 142 is "Won" status
+    if (lead.status_id === KOMMO_WON_STATUS_ID) { // Won status - configure via KOMMO_WON_STATUS_ID env var
       salesByDay.set(date, (salesByDay.get(date) || 0) + 1);
     }
   });
@@ -417,7 +451,7 @@ function generateAutoInsights(leadsData: any[], analysis: SemanticAnalysis): Aut
   
   // Analyze conversion rate
   const totalLeads = leadsData.length;
-  const wonLeads = leadsData.filter(lead => lead.status_id === 142).length;
+  const wonLeads = leadsData.filter(lead => lead.status_id === KOMMO_WON_STATUS_ID).length;
   const conversionRate = totalLeads > 0 ? (wonLeads / totalLeads) * 100 : 0;
   
   if (conversionRate < 5) {
@@ -506,8 +540,8 @@ function predictSales(leadsData: any[], period: string): SalesForecast {
     return createdAt >= start && createdAt <= end;
   });
   
-  const historicalSales = historicalData.filter(lead => lead.status_id === 142).length;
-  const currentSales = currentData.filter(lead => lead.status_id === 142).length;
+  const historicalSales = historicalData.filter(lead => lead.status_id === KOMMO_WON_STATUS_ID).length;
+  const currentSales = currentData.filter(lead => lead.status_id === KOMMO_WON_STATUS_ID).length;
   
   const growthRate = historicalSales > 0 ? (currentSales - historicalSales) / historicalSales : 0;
   const predictedSales = Math.round(currentSales * (1 + growthRate));
@@ -1484,14 +1518,9 @@ app.post('/mcp', async (req, res) => {
             const cacheStatus = isCacheValid() ? '✅ Cache ativo' : '🔄 Dados atualizados';
             response += `\n\n⚡ **Performance:** ${cacheStatus}`;
             
-            // Validate data consistency
-            const expectedLeadsCount = 13928; // Expected total leads
+            // Total leads count
             const actualLeadsCount = leadsArray.length;
-            const isDataConsistent = Math.abs(actualLeadsCount - expectedLeadsCount) <= 1;
-            
-            if (!isDataConsistent) {
-              logger.info(`⚠️ Inconsistência detectada: ${actualLeadsCount} leads vs ${expectedLeadsCount} esperados`);
-            }
+            const isDataConsistent = actualLeadsCount > 0;
             
             // Update performance metrics
             const responseTime = (Date.now() - startTime) / 1000;
@@ -1501,6 +1530,7 @@ app.post('/mcp', async (req, res) => {
               response: response,
               metadata: {
                 total_leads_analyzed: actualLeadsCount,
+                won_status_id_used: KOMMO_WON_STATUS_ID,
                 temporal_filter: temporalFilter,
                 category_filter: category,
                 month_filter: month,
@@ -1837,12 +1867,15 @@ app.options('/mcp', (req, res) => {
   res.sendStatus(200);
 });
 
-// Start server (bind to MCP_HOST, default 127.0.0.1 for local security)
-const HOST = process.env.MCP_HOST || '127.0.0.1';
+// Start server
+// In production (Render/cloud): bind to 0.0.0.0 so the platform can route traffic
+// In development: bind to 127.0.0.1 for local security
+const HOST = process.env.MCP_HOST || (isProduction ? '0.0.0.0' : '127.0.0.1');
 app.listen(PORT, HOST, () => {
   logger.info(`🚀 Servidor MCP Kommo rodando em http://${HOST}:${PORT}`, {
     environment: process.env.NODE_ENV || 'development',
     kommo_base_url: process.env.KOMMO_BASE_URL || 'https://api-g.kommo.com',
-    current_year: currentYear
+    current_year: currentYear,
+    won_status_id: KOMMO_WON_STATUS_ID
   });
 });
