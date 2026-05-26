@@ -817,13 +817,8 @@ app.post('/mcp', async (req, res) => {
           }
         }
       };
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
       res.setHeader('MCP-Session-Id', newSessionId);
-      res.write(`data: ${JSON.stringify(initResponse)}\n\n`);
-      res.end();
+      sendMcpResponse(res, initResponse, req);
       return;
     }
 
@@ -844,12 +839,8 @@ app.post('/mcp', async (req, res) => {
       // So we do not reject; session.initialized will stay false until client sends notifications/initialized
     }
 
-    // SSE headers for all other MCP responses
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Response format (JSON vs SSE) is handled by sendMcpResponse() based on Accept header
+    // CORS headers are handled by the cors() middleware
 
     if (method === 'tools/list') {
       const response = {
