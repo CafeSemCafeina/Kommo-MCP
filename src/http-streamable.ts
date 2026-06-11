@@ -745,7 +745,10 @@ app.post('/mcp', async (req, res) => {
   if (authToken) {
     const bearer = req.headers.authorization?.replace(/^Bearer\s+/i, '');
     const apiKey = req.headers['x-api-key'];
-    const provided = bearer || apiKey;
+    // Also accept the token via query string (?key= or ?token=) for clients
+    // that can only configure a URL (e.g. claude.ai custom connectors).
+    const queryToken = (req.query.key ?? req.query.token) as string | undefined;
+    const provided = bearer || apiKey || queryToken;
     if (provided !== authToken) {
       res.status(401).json({
         jsonrpc: '2.0',

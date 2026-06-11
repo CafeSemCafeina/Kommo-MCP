@@ -14,7 +14,7 @@ Servidor [MCP](https://modelcontextprotocol.io) (Model Context Protocol) para in
 - **Resources**: Relatório de vendas, pipelines, motivos da perda de leads
 - **Prompts**: Templates para análise de vendas e resumo de leads
 - **ask_kommo**: Interface conversacional (perguntas em linguagem natural sobre vendas, leads, contatos)
-- **Segurança**: Validação de Origin, bind em localhost por default, autenticação opcional
+- **Segurança**: Validação de Origin, bind em localhost por default, autenticação opcional (header **ou** query string)
 
 ## Pré-requisitos
 
@@ -41,7 +41,24 @@ KOMMO_ACCESS_TOKEN=seu-token-aqui
 |----------|-----------|---------|
 | `MCP_HOST` | Host de binding | `127.0.0.1` |
 | `MCP_ALLOWED_ORIGINS` | Origens permitidas (separadas por vírgula) | — |
-| `MCP_AUTH_TOKEN` | Se definido, exige `Authorization: Bearer` ou `X-API-Key` no `/mcp` | — |
+| `MCP_AUTH_TOKEN` | Se definido, exige o token no `/mcp` via header `Authorization: Bearer`, header `X-API-Key`, **ou** query string `?key=`/`?token=` | — |
+
+## Autenticação
+
+Quando `MCP_AUTH_TOKEN` está definido, o `/mcp` retorna `401` sem o token. O token pode ser enviado de três formas (o `/health` permanece aberto):
+
+```bash
+# 1. Header Authorization (recomendado para clientes que suportam headers)
+curl -H "Authorization: Bearer $TOKEN" ...
+
+# 2. Header X-API-Key
+curl -H "X-API-Key: $TOKEN" ...
+
+# 3. Query string — para clientes que só aceitam uma URL (ex.: conectores web)
+curl -X POST "http://localhost:3001/mcp?key=$TOKEN" ...
+```
+
+> **Por que a query string?** Conectores remotos como o *custom connector* do Claude web só oferecem campo de URL (+ OAuth), sem campo para header. Enviar o token via `?key=` permite autenticar nesses clientes. Atenção: o token na URL pode aparecer em logs — prefira os headers quando o cliente suportar, e use a query string apenas quando for a única opção.
 
 ## Execução
 
